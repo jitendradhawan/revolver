@@ -62,11 +62,9 @@ import io.dropwizard.revolver.persistence.AeroSpikePersistenceProvider;
 import io.dropwizard.revolver.persistence.InMemoryPersistenceProvider;
 import io.dropwizard.revolver.persistence.PersistenceProvider;
 import io.dropwizard.revolver.resource.RevolverApiManageResource;
-import io.dropwizard.revolver.resource.RevolverCallbackResource;
 import io.dropwizard.revolver.resource.RevolverConfigResource;
 import io.dropwizard.revolver.resource.RevolverMailboxResource;
 import io.dropwizard.revolver.resource.RevolverMetadataResource;
-import io.dropwizard.revolver.resource.RevolverRequestResource;
 import io.dropwizard.revolver.splitting.PathExpressionSplitConfig;
 import io.dropwizard.revolver.splitting.SplitConfig;
 import io.dropwizard.riemann.RiemannBundle;
@@ -387,11 +385,6 @@ public abstract class RevolverBundle<T extends Configuration> implements Configu
 
         environment.jersey().register(new RevolverRequestFilter(revolverConfig));
 
-        environment.jersey().register(
-                new RevolverRequestResource(environment.getObjectMapper(), msgPackObjectMapper,
-                        persistenceProvider, callbackHandler, metrics, revolverConfig));
-        environment.jersey()
-                .register(new RevolverCallbackResource(persistenceProvider, callbackHandler));
         environment.jersey().register(
                 new RevolverMailboxResource(persistenceProvider, environment.getObjectMapper(),
                         msgPackObjectMapper, Collections.unmodifiableMap(apiConfig)));
