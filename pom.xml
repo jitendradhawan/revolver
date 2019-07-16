@@ -4,7 +4,7 @@
 
     <groupId>io.dropwizard.revolver</groupId>
     <artifactId>dropwizard-revolver</artifactId>
-    <version>1.3.7-38-CALLBACK</version>
+    <version>1.3.7-38-1-CALLBACK</version>
     <packaging>jar</packaging>
 
     <name>dropwizard-revolver</name>

@@ -254,6 +254,7 @@ public class AeroSpikePersistenceProvider implements PersistenceProvider {
         Record record = AerospikeConnectionManager.getClient()
                 .get(AerospikeConnectionManager.readPolicy, key);
         if (record == null) {
+            log.error("No record found : {}", requestId);
             return null;
         }
         RevolverCallbackRequest request = recordToRequest(record);

@@ -38,8 +38,8 @@ public class RevolverConfigUpdater implements Runnable {
 
     @Override
     public void run() {
-
-        log.info("Running revolver config updater job");
+        try {
+            log.info("Running revolver config updater job with exception catching enabled");
         Map<String, OptimizerAggregatedMetrics> optimizerAggregatedMetricsMap = Maps.newHashMap();
         Map<OptimizerCacheKey, OptimizerMetrics> metricsCache = optimizerMetricsCache.getCache();
         if (metricsCache.isEmpty()) {
@@ -77,6 +77,9 @@ public class RevolverConfigUpdater implements Runnable {
 
         updateRevolverConfig(optimizerAggregatedMetricsMap);
         updateLatencyThreshold(aggregatedAppLevelMetricsValues);
+        } catch (Exception e) {
+            log.error("Revolver config counldn't be updated : " + e);
+        }
 
     }
 
