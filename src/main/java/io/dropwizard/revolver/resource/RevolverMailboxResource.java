@@ -158,7 +158,6 @@ public class RevolverMailboxResource {
         try {
             RevolverCallbackRequest callbackRequest = persistenceProvider.request(requestId);
             if (callbackRequest == null) {
-                log.error("Not Found Error : {}", requestId);
                 throw NOT_FOUND_ERROR;
             }
             if (headers.getAcceptableMediaTypes().size() == 0) {

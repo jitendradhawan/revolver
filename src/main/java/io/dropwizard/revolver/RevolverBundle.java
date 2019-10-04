@@ -15,6 +15,7 @@
  */
 package io.dropwizard.revolver;
 
+import com.codahale.metrics.MetricRegistry;
 import com.codahale.metrics.json.MetricsModule;
 import com.collections.CollectionUtils;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -35,6 +36,7 @@ import io.dropwizard.revolver.core.config.AerospikeMailBoxConfig;
 import io.dropwizard.revolver.core.config.InMemoryMailBoxConfig;
 import io.dropwizard.revolver.core.config.RevolverConfig;
 import io.dropwizard.revolver.core.config.RevolverServiceConfig;
+import io.dropwizard.revolver.core.config.ServiceDiscoveryConfig;
 import io.dropwizard.revolver.core.config.hystrix.ThreadPoolConfig;
 import io.dropwizard.revolver.discovery.RevolverServiceResolver;
 import io.dropwizard.revolver.discovery.model.RangerEndpointSpec;
@@ -216,31 +218,26 @@ public abstract class RevolverBundle<T extends Configuration> implements Configu
     private static void registerCommand(RevolverServiceConfig config,
             RevolverHttpServiceConfig revolverHttpServiceConfig) {
         if (config instanceof RevolverHttpServiceConfig) {
-            //Adjust connectionPool size to make sure we don't starve connections. Guard against misconfiguration
-            //1. Add concurrency from thread pool groups
-            //2. Add concurrency from apis which do not belong to any thread pool group
-            int totalConcurrency = 0;
-            if (config.getThreadPoolGroupConfig() != null) {
-                totalConcurrency = config.getThreadPoolGroupConfig().getThreadPools().stream()
-                        .mapToInt(ThreadPoolConfig::getConcurrency).sum();
-                config.getThreadPoolGroupConfig().getThreadPools()
-                        .forEach(a -> a.setInitialConcurrency(a.getConcurrency()));
+
+            setTotalConcurrencyForService(config);
+            setApiSettings(config);
+
+            generateApiConfigMap((RevolverHttpServiceConfig) config);
+            serviceNameResolver.register(revolverHttpServiceConfig.getEndpoint());
+        }
             }
-            totalConcurrency += ((RevolverHttpServiceConfig) config).getApis().stream()
-                    .filter(a -> Strings
-                            .isNullOrEmpty(a.getRuntime().getThreadPool().getThreadPoolName()))
-                    .mapToInt(a -> a.getRuntime().getThreadPool().getConcurrency()).sum();
 
-            ((RevolverHttpServiceConfig) config).setConnectionPoolSize(totalConcurrency);
-
+    private static void setApiSettings(RevolverServiceConfig config) {
             ((RevolverHttpServiceConfig) config).getApis().forEach(a -> {
                 String key = config.getService() + "." + a.getApi();
                 apiStatus.put(key, true);
                 apiConfig.put(key, a);
                 if (a.getRuntime() != null && a.getRuntime().getThreadPool() != null) {
+                if (a.getRuntime().getThreadPool().getInitialConcurrency() == 0) {
                     a.getRuntime().getThreadPool()
                             .setInitialConcurrency(a.getRuntime().getThreadPool().getConcurrency());
                 }
+            }
                 if (null != a.getSplitConfig() && a.getSplitConfig().isEnabled()) {
                     updateSplitConfig(a);
                     if (CollectionUtils
@@ -253,11 +250,32 @@ public abstract class RevolverBundle<T extends Configuration> implements Configu
                         a.getSplitConfig().setPathExpressionSplitConfigs(sortedOnOrder);
                     }
                 }
+        });
+    }
 
+    private static void setTotalConcurrencyForService(RevolverServiceConfig config) {
+        //Adjust connectionPool size to make sure we don't starve connections. Guard against misconfiguration
+        //1. Add concurrency from thread pool groups
+        //2. Add concurrency from apis which do not belong to any thread pool group
+        int totalConcurrency = 0;
+        if (config.getThreadPoolGroupConfig() != null) {
+            totalConcurrency = config.getThreadPoolGroupConfig().getThreadPools().stream()
+                    .mapToInt(ThreadPoolConfig::getConcurrency).sum();
+            config.getThreadPoolGroupConfig().getThreadPools()
+                    .forEach(a -> {
+                        if (a.getInitialConcurrency() == 0) {
+                            log.info("Initial Concurrency : {}, Thread Pool : {}", a.getInitialConcurrency(),
+                                    a.getThreadPoolName());
+                            a.setInitialConcurrency(a.getConcurrency());
+                        }
             });
-            generateApiConfigMap((RevolverHttpServiceConfig) config);
-            serviceNameResolver.register(revolverHttpServiceConfig.getEndpoint());
         }
+        totalConcurrency += ((RevolverHttpServiceConfig) config).getApis().stream()
+                .filter(a -> Strings
+                        .isNullOrEmpty(a.getRuntime().getThreadPool().getThreadPoolName()))
+                .mapToInt(a -> a.getRuntime().getThreadPool().getConcurrency()).sum();
+
+        ((RevolverHttpServiceConfig) config).setConnectionPoolSize(totalConcurrency);
     }
 
     private static void updateSplitConfig(RevolverHttpApiConfig apiConfig) {
@@ -352,36 +370,7 @@ public abstract class RevolverBundle<T extends Configuration> implements Configu
         InlineCallbackHandler callbackHandler = InlineCallbackHandler.builder()
                 .persistenceProvider(persistenceProvider).revolverConfig(revolverConfig).build();
 
-        OptimizerConfig optimizerConfig = revolverConfig.getOptimizerConfig();
-        if (optimizerConfig != null && optimizerConfig.isEnabled()) {
-            log.info("Optimizer config enabled");
-            OptimizerMetricsCollectorConfig optimizerMetricsCollectorConfig = optimizerConfig
-                    .getMetricsCollectorConfig();
-            OptimizerConfigUpdaterConfig configUpdaterConfig = optimizerConfig
-                    .getConfigUpdaterConfig();
-            OptimizerMetricsCache optimizerMetricsCache = OptimizerMetricsCache.builder().
-                    optimizerMetricsCollectorConfig(optimizerMetricsCollectorConfig)
-                    .build();
-            OptimizerMetricsCollector optimizerMetricsCollector = OptimizerMetricsCollector
-                    .builder().metrics(metrics).optimizerMetricsCache(optimizerMetricsCache)
-                    .optimizerConfig(optimizerConfig).build();
-
-            scheduledExecutorService.scheduleAtFixedRate(optimizerMetricsCollector,
-                    optimizerConfig.getInitialDelay(),
-                    optimizerMetricsCollectorConfig.getRepeatAfter(),
-                    optimizerMetricsCollectorConfig.getTimeUnit());
-
-            RevolverConfigUpdater revolverConfigUpdater = RevolverConfigUpdater.builder()
-                    .optimizerConfig(optimizerConfig)
-                    .optimizerMetricsCache(optimizerMetricsCache).revolverConfig(revolverConfig)
-                    .build();
-
-            configUpdaterExecutorService.scheduleAtFixedRate(revolverConfigUpdater,
-                    optimizerConfig.getInitialDelay(),
-                    configUpdaterConfig.getRepeatAfter(),
-                    configUpdaterConfig.getTimeUnit());
-
-        }
+        setupOptimizer(metrics, scheduledExecutorService, configUpdaterExecutorService);
 
         environment.jersey().register(new RevolverRequestFilter(revolverConfig));
 
@@ -453,19 +442,68 @@ public abstract class RevolverBundle<T extends Configuration> implements Configu
 
     private void initializeRevolver(T configuration, Environment environment) {
         revolverConfig = getRevolverConfig(configuration);
+        ServiceDiscoveryConfig serviceDiscoveryConfig = revolverConfig.getServiceDiscoveryConfig();
+        if (serviceDiscoveryConfig == null) {
+            log.info("ServiceDiscovery in null");
+            serviceDiscoveryConfig = ServiceDiscoveryConfig.builder().build();
+        }
+        log.info("ServiceDiscovery : " + serviceDiscoveryConfig);
         if (revolverConfig.getServiceResolverConfig() != null) {
             serviceNameResolver = revolverConfig.getServiceResolverConfig().isUseCurator()
                     ? RevolverServiceResolver.usingCurator().curatorFramework(getCurator())
                     .objectMapper(environment.getObjectMapper())
-                    .resolverConfig(revolverConfig.getServiceResolverConfig()).build()
+                    .resolverConfig(revolverConfig.getServiceResolverConfig())
+                    .serviceDiscoveryConfig(serviceDiscoveryConfig).build()
                     : RevolverServiceResolver.builder()
                             .resolverConfig(revolverConfig.getServiceResolverConfig())
-                            .objectMapper(environment.getObjectMapper()).build();
+                            .objectMapper(environment.getObjectMapper()).
+                                    serviceDiscoveryConfig(serviceDiscoveryConfig).build();
         } else {
             serviceNameResolver = RevolverServiceResolver.builder()
-                    .objectMapper(environment.getObjectMapper()).build();
+                    .objectMapper(environment.getObjectMapper())
+                    .serviceDiscoveryConfig(serviceDiscoveryConfig).build();
         }
         loadServiceConfiguration(revolverConfig);
+        try {
+            serviceNameResolver.getExecutorService()
+                    .awaitTermination(serviceDiscoveryConfig.getWaitForDiscoveryInMs(), TimeUnit.MILLISECONDS);
+        } catch (InterruptedException e) {
+            log.error("Error occurred in service discovery completion : ", e);
+        }
+    }
+
+    private void setupOptimizer(MetricRegistry metrics, ScheduledExecutorService scheduledExecutorService,
+            ScheduledExecutorService configUpdaterExecutorService) {
+        OptimizerConfig optimizerConfig = revolverConfig.getOptimizerConfig();
+        if (optimizerConfig != null && optimizerConfig.isEnabled()) {
+            log.info("Optimizer config enabled");
+            OptimizerMetricsCollectorConfig optimizerMetricsCollectorConfig = optimizerConfig
+                    .getMetricsCollectorConfig();
+            OptimizerConfigUpdaterConfig configUpdaterConfig = optimizerConfig
+                    .getConfigUpdaterConfig();
+            OptimizerMetricsCache optimizerMetricsCache = OptimizerMetricsCache.builder().
+                    optimizerMetricsCollectorConfig(optimizerMetricsCollectorConfig)
+                    .build();
+            OptimizerMetricsCollector optimizerMetricsCollector = OptimizerMetricsCollector
+                    .builder().metrics(metrics).optimizerMetricsCache(optimizerMetricsCache)
+                    .optimizerConfig(optimizerConfig).build();
+
+            scheduledExecutorService.scheduleAtFixedRate(optimizerMetricsCollector,
+                    optimizerConfig.getInitialDelay(),
+                    optimizerMetricsCollectorConfig.getRepeatAfter(),
+                    optimizerMetricsCollectorConfig.getTimeUnit());
+
+            RevolverConfigUpdater revolverConfigUpdater = RevolverConfigUpdater.builder()
+                    .optimizerConfig(optimizerConfig)
+                    .optimizerMetricsCache(optimizerMetricsCache).revolverConfig(revolverConfig)
+                    .build();
+
+            configUpdaterExecutorService.scheduleAtFixedRate(revolverConfigUpdater,
+                    optimizerConfig.getInitialDelay(),
+                    configUpdaterConfig.getRepeatAfter(),
+                    configUpdaterConfig.getTimeUnit());
+
+        }
     }
 
     public MultivaluedMap<String, ApiPathMap> getServiceToPathMap() {
