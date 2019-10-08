@@ -23,7 +23,6 @@ import com.aerospike.client.IAerospikeClient;
 import com.aerospike.client.policy.ClientPolicy;
 import com.aerospike.client.policy.CommitLevel;
 import com.aerospike.client.policy.Policy;
-import com.aerospike.client.policy.ReadModeAP;
 import com.aerospike.client.policy.Replica;
 import com.aerospike.client.policy.WritePolicy;
 import com.google.common.base.Preconditions;
@@ -31,12 +30,11 @@ import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
 import io.dropwizard.revolver.core.config.AerospikeMailBoxConfig;
-import lombok.extern.slf4j.Slf4j;
-import lombok.val;
-
 import java.util.Arrays;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
+import lombok.extern.slf4j.Slf4j;
+import lombok.val;
 
 /**
  * @author phaneesh
@@ -54,7 +52,6 @@ public class AerospikeConnectionManager {
                 public WritePolicy load(Integer key) {
                     WritePolicy wp = new WritePolicy();
                     wp.maxRetries = config.getRetries();
-                    wp.readModeAP = ReadModeAP.ONE;
                     wp.replica = Replica.MASTER_PROLES;
                     wp.sleepBetweenRetries = config.getSleepBetweenRetries();
                     wp.commitLevel = CommitLevel.COMMIT_ALL;
@@ -73,7 +70,6 @@ public class AerospikeConnectionManager {
 
         readPolicy = new Policy();
         readPolicy.maxRetries = config.getRetries();
-        readPolicy.readModeAP = ReadModeAP.ONE;
         readPolicy.replica = Replica.MASTER_PROLES;
         readPolicy.sleepBetweenRetries = config.getSleepBetweenRetries();
         readPolicy.totalTimeout = config.getTimeout();
@@ -81,7 +77,6 @@ public class AerospikeConnectionManager {
 
         writePolicy = new WritePolicy();
         writePolicy.maxRetries = config.getRetries();
-        writePolicy.readModeAP = ReadModeAP.ONE;
         writePolicy.replica = Replica.MASTER_PROLES;
         writePolicy.sleepBetweenRetries = config.getSleepBetweenRetries();
         writePolicy.commitLevel = CommitLevel.COMMIT_ALL;
