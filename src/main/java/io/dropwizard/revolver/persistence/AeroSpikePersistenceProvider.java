@@ -357,10 +357,8 @@ public class AeroSpikePersistenceProvider implements PersistenceProvider {
                 && !(Arrays.asList(null, mailBoxConfig.getDefaultMailboxAuthId())
                 .contains(record.getString(BinNames.MAILBOX_AUTH_ID)))
                 && !record.getString(BinNames.MAILBOX_AUTH_ID).equals(mailBoxAuthId);
-        log.info("Enforcing mailbox auth check : {}, mailbox auth id check pass : {}, "
-                        + "stored mailboxAuthId: {}, requested mailboxAuthId : {}",
-                enforceMailboxAuthCheck, !isInvalidMailboxAuth, record.getString(BinNames.MAILBOX_AUTH_ID),
-                mailBoxAuthId);
+        log.debug("Enforcing mailbox auth check : {}, mailbox auth id check pass : {}",
+                enforceMailboxAuthCheck, !isInvalidMailboxAuth);
         return isInvalidMailboxAuth;
     }
 
